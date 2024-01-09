@@ -1,0 +1,449 @@
+```{r basic, include = F}
+# use this function to conveniently load libraries and work smoothly with knitting
+# can add quietly=T option to the require() function
+# the loadPkg function essentially replaced/substituted two functions install.packages() and library() in one step.
+loadPkg = function(x) { if (!require(x,character.only=T, quietly =T)) { install.packages(x,dep=T,repos="http://cran.us.r-project.org"); if(!require(x,character.only=T)) stop("Package not found") } }
+
+# unload/detact package when done using it
+unloadPkg = function(pkg, character.only = FALSE) { 
+  if(!character.only) { pkg <- as.character(substitute(pkg)) } 
+  search_item <- paste("package", pkg,sep = ":") 
+  while(search_item %in% search()) { detach(search_item, unload = TRUE, character.only = TRUE) } 
+}
+```
+
+```{r setup, include=FALSE}
+# some of common options (and the defaults) are: 
+# include=T, eval=T, echo=T, results='hide'/'asis'/'markup',..., collapse=F, warning=T, message=T, error=T, cache=T, fig.width=6, fig.height=4, fig.dim=c(6,4) #inches, fig.align='left'/'center','right', 
+# knitr::opts_chunk$set(warning = F, results = "markup", message = F)
+knitr::opts_chunk$set(warning = F, results = "hide", message = F)
+# knitr::opts_chunk$set(include = F)
+# knitr::opts_chunk$set(echo = TRUE)
+options(scientific=T, digits = 3) 
+# options(scipen=9, digits = 3) 
+# ‘scipen’: integer. A penalty to be applied when deciding to print numeric values in fixed or exponential notation.  Positive values bias towards fixed and negative towards scientific notation: fixed notation will be preferred unless it is more than ‘scipen’ digits wider.
+# use scipen=999 to prevent scientific notation at all times
+```
+```{r xkablesummary}
+loadPkg("xtable")
+loadPkg("kableExtra")
+loadPkg("stringi")
+
+xkabledply = function(modelsmmrytable, title="Table", digits = 4, pos="left", bso="striped", wide=FALSE) { 
+  #' Combining base::summary, xtable, and kableExtra, to easily display model summary. 
+  #' wrapper for the base::summary function on model objects
+  #' Can also use as head for better display
+  #' ELo 202004 GWU DATS
+  #' version 1.2
+  #' @param modelsmmrytable This can be a generic table, a model object such as lm(), or the summary of a model object summary(lm()) 
+  #' @param title Title of table. 
+  #' @param digits Number of digits to display
+  #' @param pos Position of table, c("left","center","right") 
+  #' @param bso bootstrap_options = c("basic", "striped", "bordered", "hover", "condensed", "responsive")
+  #' @param wide print table in long (FALSE) format or wide (TRUE) format
+  #' @return HTML table for display
+  #' @examples
+  #' library("xtable")
+  #' library("kableExtra")
+  #' xkabledply( df, title="Table testing", pos="left", bso="hover" )
+  #' xkabledply( ISLR::Hitters[1:5,] )
+  if (wide) { modelsmmrytable <- t(modelsmmrytable) }
+  modelsmmrytable %>%
+    xtable() %>% 
+    kable(caption = title, digits = digits) %>%
+    kable_styling(bootstrap_options = bso, full_width = FALSE, position = pos)
+}
+
+xkabledplyhead = function(df, rows=5, title="Head", digits = 4, pos="left", bso="striped") { 
+  xkabledply(df[1:rows, ], title, digits, pos, bso, wide=FALSE)
+}
+
+xkabledplytail = function(df, rows=5, title="Tail", digits = 4, pos="left", bso="striped") { 
+  trows = nrow(df)
+  xkabledply(df[ (trows-rows+1) : trows, ], title, digits, pos, bso, wide=FALSE)
+}
+
+xkablesummary = function(df, title="Table: Statistics summary.", digits = 4, pos="left", bso="striped") { 
+  #' Combining base::summary, xtable, and kableExtra, to easily display numeric variable summary of dataframes. 
+  #' ELo 202004 GWU DATS
+  #' version 1.2
+  #' @param df The dataframe.
+  #' @param title Title of table. 
+  #' @param digits Number of digits to display
+  #' @param pos Position of table, c("left","center","right") 
+  #' @param bso bootstrap_options = c("basic", "striped", "bordered", "hover", "condensed", "responsive")
+  #' @return The HTML summary table for display, or for knitr to process into other formats 
+  #' @examples
+  #' xkablesummary( faraway::ozone )
+  #' xkablesummary( ISLR::Hitters, title="Five number summary", pos="left", bso="hover"  )
+  
+  s = summary(df) %>%
+    apply( 2, function(x) stringr::str_remove_all(x,c("Min.\\s*:\\s*","1st Qu.\\s*:\\s*","Median\\s*:\\s*","Mean\\s*:\\s*","3rd Qu.\\s*:\\s*","Max.\\s*:\\s*")) ) %>% # replace all leading words
+    apply( 2, function(x) stringr::str_trim(x, "right")) # trim trailing spaces left
+  
+  colnames(s) <- stringr::str_trim(colnames(s))
+  
+  if ( dim(s)[1] ==6 ) { rownames(s) <- c('Min','Q1','Median','Mean','Q3','Max') 
+  } else if ( dim(s)[1] ==7 ) { rownames(s) <- c('Min','Q1','Median','Mean','Q3','Max','NA') }
+  
+  xkabledply(s, title=title, digits = digits, pos=pos, bso=bso )
+}
+
+xkablevif = function(model, title="VIFs of the model", digits = 3, pos="left", bso="striped", wide=TRUE) { 
+  #' Combining faraway::vif, xtable, and kableExtra, to easily display numeric summary of VIFs for a model. 
+  #' ELo 202004 GWU DATS
+  #' version 1.2
+  #' @param model The lm or compatible model object.
+  #' @param title Title of table. 
+  #' @param digits Number of digits to display
+  #' @param pos Position of table, c("left","center","right") 
+  #' @param bso bootstrap_options = c("basic", "striped", "bordered", "hover", "condensed", "responsive")
+  #' @param wide print table in long (FALSE) format or wide (TRUE) format
+  #' @return The HTML summary table of the VIFs for a model for display, or for knitr to process into other formats 
+  #' @examples
+  #' xkablevif( lm(Salary~Hits+RBI, data=ISLR::Hitters), wide=T )
+  
+  vifs = table( names(model$coefficients)[2:length(model$coefficients)] ) # remove intercept to set column names
+  vifs[] = faraway::vif(model) # set the values
+  if (wide) { vifs <- t(vifs) }
+  xkabledply( vifs, title=title, digits = digits, pos=pos, bso=bso )
+}
+```
+
+#Importing the dataset
+
+```{r, result='markup'}
+setwd("C:/Users/16022/Desktop/515/Final Project")
+car_df <- read.csv("Car details.csv")
+car_df 
+
+```
+
+```{r, result='markup'}
+
+#ggplot(data = car_df , aes(x=name, fill = name)) + geom_bar() + labs(x='Car Brand') + labs(title = "Bar Graph of Car #Brand") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+        
+        
+```
+
+```{r, result='markup'}
+
+x <- capture.output(dput(names(car_df)))
+cat("The dataset consists of", nrow(car_df), "observations with", ncol(car_df), "variables. The variables are \n", x, "\n \n")
+
+```
+
+#remove blanks and unwanted values
+
+```{r, result='markup'}
+
+car_df  <- car_df[!((car_df$mileage=="") | (car_df$max_power==" bhp") |(car_df$mileage == "0.0 kmpl")), ]
+
+```
+
+#remove suffixes
+
+```{r, result='markup'}
+
+car_df$mileage <- gsub("kmpl","", as.character(car_df$mileage))
+car_df$mileage <- gsub("km/kg","", as.character(car_df$mileage))
+car_df$engine <- gsub("CC","", as.character(car_df$engine))
+car_df$max_power <- gsub("bhp","", as.character(car_df$max_power))
+
+```
+
+
+```{r, result='markup'}
+
+car_df$torque <- sub("N.*", "", car_df$torque)
+car_df$torque <- sub("k.*", "", car_df$torque)
+car_df$torque <- sub("n.*", "", car_df$torque)
+car_df$torque <- sub("@.*", "", car_df$torque)
+car_df$torque <- sub("K.*", "", car_df$torque)
+
+```
+
+#Viz showing the variable types 
+
+```{r, result='markup'}
+
+library(visdat)
+vis_dat(car_df)
+
+```
+
+#convert variables to factor
+
+```{r, result='markup'}
+
+car_df[c("fuel","transmission", "seller_type")] <- sapply(car_df[c("fuel","transmission", "seller_type")],as.factor)
+
+```
+
+#Assigning labels to owner_type
+
+```{r, result='markup'}
+
+car_df$owner <- factor(car_df$owner, labels = c(0,1,2,3,4), levels = c("Test Drive Car", "First Owner", "Second Owner", "Third Owner", "Fourth & Above Owner"))
+
+```
+
+# converting the following variables to numeric
+
+```{r, result='markup'}
+
+car_df[c("mileage","engine", "max_power", "torque", "owner")] <- sapply(car_df[c("mileage","engine", "max_power", "torque", "owner")],as.numeric)
+
+```
+
+
+#viz showing the variable types after conversions
+
+```{r, result='markup'}
+
+vis_dat(car_df)
+
+```
+
+
+```{r, result='markup'}
+
+
+# omitting na values
+
+```{r, result='markup'}
+
+car_df <- na.omit(car_df)
+car_df
+vis_dat(car_df)
+```
+
+```{r, result='markup'}
+
+cat("After removing the missing values there are:\n", nrow(car_df), "rows and", ncol(car_df), "columns")
+
+```
+
+#Determing the variations in selling price
+
+```{r, result='markup'}
+
+library(beanplot)
+library(ggplot2)
+require(gridExtra)
+
+p0 <- ggplot(car_df, aes(x = selling_price, y = fuel, color=selling_price)) +
+    geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+    ggtitle("Violin Plot wrt selling price and fuel")+labs(x="selling price")
+p0
+
+p1 <- ggplot(car_df, aes(x = selling_price, y = fuel, color=fuel)) + geom_boxplot() + scale_x_continuous(limits = c(0, 2500000)) + ggtitle("Box Plot of selling price wrt fuel")+ theme(legend.position = 'none')+labs(x="selling price")
+p1
+
+p2 <- ggplot(car_df, aes(x = selling_price, y = seller_type, color=seller_type)) + geom_boxplot() + scale_x_continuous(limits = c(0, 2500000))+ggtitle("Box Plot of selling price wrt seller type")+ theme(legend.position = 'none')+labs(x="selling price", y = "Type of seller")
+p2
+
+p3 <- ggplot(car_df, aes(x = selling_price, y = transmission, color=transmission)) + geom_boxplot() + scale_x_continuous(limits = c(0, 2500000))+ggtitle("Box Plot of selling price wrt transmission")+ theme(legend.position = 'none')+labs(x="selling price",y="Transmission")
+p3
+
+grid.arrange(p1, p2, p3, ncol = 2, nrow = 2)
+
+```
+
+
+```{r, result='markup'}
+
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(hrbrthemes)
+
+for_p4 <- car_df %>%
+	group_by(year) %>%
+	summarise(mean_sellingPrice = mean(selling_price))
+
+p4 <- ggplot(data=for_p4, aes(x=year, y=mean_sellingPrice, group=1)) + geom_area(alpha=0.8 , size=.5, colour="red")  + scale_fill_viridis(discrete = T) + geom_point() + theme_ipsum() + scale_x_continuous(breaks = seq(1993, 2021, 2)) + ggtitle("Density plot-Mean selling_price wrt year")+labs(y="selling price")
+p4
+
+
+for_p5 <- car_df %>%
+	group_by(owner) %>%
+	summarise(mean_sellingPrice = mean(selling_price))
+p5 <- ggplot(data=for_p5, aes(x=owner, y=mean_sellingPrice, group=1)) + scale_fill_viridis(discrete = T) +
+    theme_ipsum() + geom_area(alpha=0.6 , size=.5, colour="black") + geom_point()+ggtitle("Density plot-Mean selling_price wrt owner")+labs(y="selling price")
+p5
+
+for_p6 <- car_df %>%
+	group_by(seats) %>%
+	summarise(mean_sellingPrice = mean(selling_price))
+p6 <- ggplot(data=for_p6, aes(x=seats, y=mean_sellingPrice, group=1)) + geom_line()+ geom_point()+ scale_x_continuous(breaks = seq(0, 14, 2))+ggtitle("Density plot of Selling price wrt seats")+labs(y="selling price")
+p6
+
+grid.arrange(p4, p5, p6, ncol = 2, nrow = 2)
+```
+
+
+```{r, results = 'markup'}
+
+ggplot(car_df, aes(x=km_driven, y=selling_price)) + geom_point()+ggtitle("Scatter plot between selling_price and kms_driven")+labs(x="km driven",y="selling price")
+plot(log10(car_df$km_driven), log10(car_df$selling_price))+labs(x="km driven",y="selling price")
+
+mod <- lm(log10(car_df$selling_price) ~ log10(car_df$km_driven))
+abline(mod, col = "black")
+
+slope = mod$coefficients[2]
+intercept = mod$coefficients[1]
+x = car_df$km_driven
+y = (10^intercept)*x^(slope)
+ggplot(car_df)+ geom_point(aes(km_driven, selling_price), color = "blue")+ geom_line(aes(x=km_driven, y= y, color = "exponential fit"))+ggtitle("Dot plot of selling_price and kms_driven")+theme(legend.position = 'none') + labs(x="km driven",y="selling price")
+```
+
+
+
+#Most sold cars 
+
+
+```{r, result='markup'}
+sellerType_freq = as.data.frame(table(car_df$seller_type))
+p7 <- ggplot(car_df, aes(x=seller_type)) + geom_histogram(color="black", fill= 'yellow', binwidth = 1, stat = "count")+ geom_vline(aes(xintercept=mean(seller_type))) + labs(title = "Number of cars sold for \neach seller type")+ theme(plot.title = element_text(size = 10, face = "bold")) + labs(x = "Seller type",y = "Number of Cars sold")
+p7
+```
+
+```{r, result='markup'}
+
+transmission_freq = as.data.frame(table(car_df$transmission))
+p8 <- ggplot(car_df, aes(x=transmission)) + geom_histogram(color="black", fill="sky blue", binwidth = 1, stat = "count")+labs(title = "Number of cars sold for \neach transmission type")+ theme(plot.title = element_text(size = 10, face = "bold")) + labs(x = "Transmission type",y = "Number of Cars sold")
+p8
+
+```
+
+```{r, result='markup'}
+year_freq = as.data.frame(table(car_df$year))
+p9 <- ggplot(car_df, aes(x=year)) + geom_histogram(color="black", fill="light green", binwidth = 1, stat = "count")+labs(title = "Number of cars sold for \neach year 1994-2020")+ theme(plot.title = element_text(size = 10, face = "bold"))+ scale_x_continuous(breaks = seq(1994, 2020, 5))+ labs(y = "Number of cars sold")
+p9
+
+```
+
+
+```{r, result='markup'}
+
+owner_freq = as.data.frame(table(car_df$owner))
+p10 <- ggplot(car_df, aes(x=owner)) + geom_histogram(color="black", fill="green", binwidth = 1, stat = "count")+labs(title = "Number of cars sold for \neach number of owners")+ theme(plot.title = element_text(size = 10, face = "bold")) + labs(y="Number of cars sold")
+p10
+
+```
+
+
+```{r, result='markup'}
+seats_freq = as.data.frame(table(car_df$seats))
+p11 <- ggplot(car_df, aes(x=seats)) + geom_histogram(color="black", fill="orange", binwidth = 1, stat = "count")+labs(title = "Number of cars sold for \neach number of seats")+ theme(plot.title = element_text(size = 10, face = "bold"))+ scale_x_continuous(breaks = seq(4, 14, 1))+labs(y="Number of cars sold")
+p11
+```
+
+```{r, result='markup'}
+library("gridExtra")
+grid.arrange(p7, p8, p9, p10, p11, ncol = 3, nrow = 2)
+```
+
+
+#Correlation between selling price and other variables
+
+```{r, result='markup'}
+
+SP_fuel = aov(selling_price ~ fuel, data = car_df)
+summary(SP_fuel)
+
+SP_transmission = aov(selling_price ~ transmission, data = car_df)
+summary(SP_transmission)
+
+SP_sellerType = aov(selling_price ~ seller_type, data = car_df)
+summary(SP_sellerType)
+
+library(corrgram)
+
+df <- dplyr::select_if(car_df, is.numeric)
+r <- cor(df, use="complete.obs")
+xkabledply(round(r,2))
+corrgram(r, , order = TRUE, lower.panel = panel.shade, upper.panel = panel.pie, text.panel = panel.txt)
+r
+
+library(ggcorrplot)
+
+df <- dplyr::select_if(car_df, is.numeric)
+r <- cor(df, use="complete.obs")
+xkabledply(round(r,2))
+ggcorrplot(r, hc.order = TRUE, type = "lower", lab = TRUE)+ggtitle("Correlation plot")
+r
+
+```
+
+#Predicting the selling price based on the variables.
+
+#Feature selection comparing methods: Forward.
+
+#Forward selection.
+
+```{r, results = 'markup'}
+
+loadPkg("leaps")
+loadPkg("car")
+reg.best10 <- regsubsets(selling_price~. -name , data = car_df, nvmax = 5, nbest = 1, method = "exhaustive")
+summary(reg.best10)
+plot(reg.best10, scale = "adjr2", main = "Adjusted R^2")
+plot(reg.best10, scale = "bic", main = "BIC")
+plot(reg.best10, scale = "Cp", main = "Cp")
+
+best_model = lm(selling_price~ year+ km_driven+ seller_type+ transmission+ mileage+ max_power, data = car_df)
+summary(best_model)
+```
+
+
+## Linear regression model
+```{r, results = 'markup'}
+library(tidyverse)
+library(caret)
+
+set.seed(1000)
+car_df_sample <- sample(2, nrow(car_df), replace=TRUE, prob=c(0.75, 0.25))
+train <- car_df[car_df_sample==1, 2:13]
+test <- car_df[car_df_sample==2, 2:13]
+
+
+model <- lm(selling_price ~year+ km_driven+ seller_type+ transmission+ mileage+ max_power , data = train)
+
+summary(model)
+plot(model)
+#Improving the accuracy of the model by adding log function to numeric variables.
+model1 <- lm(log(selling_price) ~log(year)+ log(km_driven)+ seller_type+ transmission+ log(mileage)+ log(max_power) , data = train)
+
+summary(model1)
+plot(model1)
+
+rsq <- function(x, y) summary(lm(y~x))$r.squared
+test$pred <- predict(model, test, type = "response")
+head(test$pred)
+
+#Removing the outliers
+
+
+
+```
+#Random Forest Regression
+
+library(dplyr)
+library(randomForest)
+library(pROC)
+install.packages("tidymodels")
+library(tidymodels)
+
+random_forest_model <- randomForest(selling_price ~ year + km_driven + seller_type + transmission + mileage + max_power, data = train, ntree = 1, proximity = TRUE, importance = TRUE)
+
+summary(random_forest_model)
+
+plot(random_forest_model)
+
+varImpPlot(random_forest_model)
+
+summary(random_forest_model)
+
+
